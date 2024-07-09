@@ -39,7 +39,7 @@ const createUser = async ({ username, password }) => {
   const response = await client.query(SQL, [
     uuid.v4(),
     username,
-    await bcrypt.hash(password, 5),
+    await bcrypt.hash(password, 10),
   ]);
   return response.rows[0];
 };
@@ -72,9 +72,7 @@ const authenticate = async ({ username, password }) => {
     SELECT id, username, password FROM users WHERE username=$1;
   `;
   const response = await client.query(SQL, [username]);
-  console.log(response);
 
-  //verify password
   const user = response.rows[0];
   let passwordMatches = false;
 
@@ -82,55 +80,51 @@ const authenticate = async ({ username, password }) => {
     passwordMatches = await bcrypt.compare(password, user.password);
   }
 
-  if (!response.rows.length || !passwordMatches) {
-    const error = Error("not authorised");
-    error.status = 401;
-    throw error;
+  if (passwordMatches) {
+    const token = jwt.sign({ id: user.id }, secret);
+    return token;
   }
-  //console.log(secret);
 
-  const token = jwt.sign({ id: user.id }, secret);
-
-  return { token };
+  const error = Error("bad credentials");
+  error.status = 401;
+  throw error;
 };
 
 const findUserWithToken = async (token) => {
-  //console.log(token);
-  const { id } = jwt.verify(token, secret);
-  //console.log(decoded)
-  const SQL = `
-    SELECT id, username FROM users WHERE id=$1;
-  `;
-  const response = await client.query(SQL, [id]);
-  if (!response.rows.length) {
-    const error = Error("not authorized");
+  try {
+    const { id } = jwt.verify(token, secret);
+    const response = await client.query(
+      "SELECT id, username FROM users WHERE id = $1",
+      [id]
+    );
+    if (response.rows.length) {
+      return response.rows[0];
+    }
+    const error = Error("bad token");
+    error.status = 401;
+    throw error;
+  } catch (ex) {
+    const error = Error("bad token");
     error.status = 401;
     throw error;
   }
-  return response.rows[0];
 };
 
 const fetchUsers = async () => {
-  const SQL = `
-    SELECT id, username FROM users;
-  `;
-  const response = await client.query(SQL);
+  const response = await client.query("SELECT id, username FROM users");
   return response.rows;
 };
 
 const fetchProducts = async () => {
-  const SQL = `
-    SELECT * FROM products;
-  `;
-  const response = await client.query(SQL);
+  const response = await client.query("SELECT id, name FROM products");
   return response.rows;
 };
 
 const fetchFavorites = async (user_id) => {
-  const SQL = `
-    SELECT * FROM favorites where user_id = $1
-  `;
-  const response = await client.query(SQL, [user_id]);
+  const response = await client.query(
+    "SELECT * FROM favorites WHERE user_id = $1",
+    [user_id]
+  );
   return response.rows;
 };
 
@@ -141,9 +135,9 @@ module.exports = {
   createProduct,
   fetchUsers,
   fetchProducts,
-  fetchFavorites,
   createFavorite,
   destroyFavorite,
+  fetchFavorites,
   authenticate,
   findUserWithToken,
 };
